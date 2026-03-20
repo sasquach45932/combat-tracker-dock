@@ -622,6 +622,43 @@ export function defaultAttributesConfig() {
             { attr: "attributes.ac.value", icon: "fas fa-shield", units: "AC" },
             { attr: "attributes.hp.value", icon: "fas fa-heart", units: "HP" },
         ],
+        demonlord: [
+            {
+                attr: "difficulty",
+                icon: "fa-solid fa-skull",
+                units: "",
+            },
+            {
+                attr: "perceptionsenses",
+                icon: "fa-regular fa-eye",
+                units: "",
+            },
+            {
+                attr: "characteristics.size",
+                icon: "fa-solid fa-arrows-up-down",
+                units: "",
+            },
+            {
+                attr: "characteristics.health.value",
+                icon: "fas fa-heart",
+                units: "",
+            },
+            {
+                attr: "characteristics.defense",
+                icon: "fas fa-shield",
+                units: "",
+            },
+            {
+                attr: "characteristics.speed",
+                icon: "fas fa-person-running-fast",
+                units: "yd.",
+            },
+            {
+                attr: "speedtraits",
+                icon: "fa-solid fa-person-walking-dashed-line-arrow-right",
+                units: "",
+            },
+        ],
     };
 }
 
@@ -846,6 +883,31 @@ export function generateDescription(actor) {
                 default:
                     return null;
             }
+        case "demonlord":
+            switch (type) {
+                case "character":
+                    const ancestry = actor.items.find(i => i.type === 'ancestry')?.name ? actor.items.find(i => i.type === 'ancestry')?.name : ''
+                    if (ancestry)
+                        return `Level ${system.level} (${ancestry})`
+                    else
+                        return `Level ${system.level}`
+                case "creature":
+                    let creatureType;
+                    if (game.settings.get('demonlord', 'optionalRuleTraitMode2025'))
+                        creatureType = game.i18n.localize('DL.CreatureHorrifying')
+                    else
+                        creatureType =
+                        system.frightening && system.horrifying
+                        ? game.i18n.localize('DL.CreatureHorrifying') + '/' + game.i18n.localize('DL.CreatureFrightening')
+                        : system.frightening
+                        ? game.i18n.localize('DL.CreatureFrightening')
+                        : system.horrifying
+                        ? game.i18n.localize('DL.CreatureHorrifying')
+                        : ''
+                    return `${creatureType} ${system.descriptor}`;
+                case "vehicle":
+                    return game.i18n.localize("TYPES.Actor.vehicle");
+            }
     }
 }
 
@@ -919,6 +981,29 @@ export function getInitiativeDisplay(combatant) {
 				icon: "fas fa-dice-d20",
 				rollIcon: "fas fa-dice-d20",
 			};	
+        case "demonlord":
+            const capitalize = function(string) {
+                return string?.charAt(0).toUpperCase() + string?.toLowerCase().slice(1)
+            }
+            let turnMode
+            if (game.settings.get('demonlord', 'optionalRuleInitiativeMode') === 's') {
+                const multipleCombatants = game.combat.getCombatantsByToken(combatant.token)
+                if (combatant.actor?.system.fastAndSlowTurn && multipleCombatants.length == 2) {
+                // The combatant has a double initiative, so we display "Fast" and "Slow"
+                turnMode = combatant._id === multipleCombatants[0]._id ?
+                    capitalize(game.i18n.localize('DL.TurnSlow')) :
+                    capitalize(game.i18n.localize('DL.TurnFast'))
+                } else {
+                turnMode = combatant.actor?.system.fastturn ?
+                    capitalize(game.i18n.localize('DL.TurnFast')) :
+                    capitalize(game.i18n.localize('DL.TurnSlow'))
+                }
+            } else turnMode = combatant?.initiative ? parseInt(combatant.initiative).toString() : null
+            return {
+                value: turnMode,
+                icon: "fas fa-dice-d20",
+                rollIcon: "fas fa-dice-d20",
+            };
         default:
             return {
                 value: combatant?.initiative,
@@ -1077,6 +1162,96 @@ export function getSystemIcons(combatant) {
         }
         case "lancer":
             return game.lancer.combatTrackerDock?.getSystemIcons(combatant) ?? [];
+        case "demonlord": {
+        let icons = []
+        if (game.modules.get("lancer-initiative")?.active) {
+            const appearance = game.settings.get("lancer-initiative", "combat-tracker-appearance")
+            const getDisposition = function (combatant) {
+            const disposition = combatant.getFlag("lancer-initiative", "disposition") ?? combatant.token?.disposition ?? combatant.actor?.prototypeToken.disposition ?? -2
+            if (disposition === CONST.TOKEN_DISPOSITIONS.FRIENDLY && combatant.hasPlayerOwner) return 2
+            return disposition
+            }
+
+            let color
+            const disposition = getDisposition(combatant)
+            switch (disposition) {
+            case -2:
+                color = appearance.secret_color
+                break
+            case -1:
+                color = appearance.enemy_color
+                break
+            case 0:
+                color = appearance.neutral_color
+                break
+            case 1:
+                color = appearance.friendly_color
+                break
+            case 2:
+                color = appearance.player_color
+                break
+            }
+
+            if (game.combat.active && game.combat.round != 0) {
+            const actionsValue = combatant?.getFlag("lancer-initiative", "activations.value")
+            if (actionsValue != 0) {
+                icons.push({
+                icon: "fas fa-circle-chevron-right",
+                fontSize: "1rem",
+                enabled: true,
+                color: color.css,
+                callback: combatant.isOwner
+                    ? (event, combatant) => {
+                        if (combatant?.getFlag("lancer-initiative", "activations.value")) {
+                        combatant.setFlag("lancer-initiative", "activations.value", (combatant.getFlag("lancer-initiative", "activations.value") ?? 0) - 1)
+                        const turn = game.combat.turns.findIndex(t => t.id === combatant._id)
+                        const opts = { direction: 1, worldTime: { delta: CONFIG.time.turnTime } }
+                        game.combat.update({ turn }, opts)
+                        }
+                    }
+                    : null,
+                })
+            }
+            if (game.combat.current.combatantId === combatant._id) {
+                icons.push({
+                icon: "fas fa-circle-xmark",
+                fontSize: "1rem",
+                enabled: true,
+                color: "#aaaaaa",
+                callback: combatant.isOwner
+                    ? (event, combatant) => {
+                        const turn = game.combat.turns.findIndex(t => t.id === combatant._id)
+                        if (turn === game.combat.turn) {
+                        if (game.combat.turns[turn].testUserPermission(game.user, "OWNER") && game.user?.isGM) {
+                            const opts = { direction: 0, worldTime: { delta: 0, }, }
+                            game.combat.update( { turn: null, }, opts, )
+                        }
+                        }
+                    }
+                    : null,
+                })
+            }
+            }
+        }
+        else
+        {
+            if (game.settings.get('demonlord', 'optionalRuleInitiativeMode') === 's' && (game.combat.current.turn === null || (game.combat.current.round > 1 && game.combat.turn === 0 )))
+            {
+                icons.push({
+                icon: "fa-solid fa-arrow-right-arrow-left",
+                fontSize: "1rem",
+                enabled: true,
+                callback: combatant.isOwner
+                    ? (event, combatant) => {
+                        combatant.actor.update({'system.fastturn': !combatant.actor.system.fastturn})
+                        game.combat.update({turn : null})
+                    }
+                    : null,
+                })
+            }
+        }
+        return icons
+        }
         default: {
             return [];
         }
